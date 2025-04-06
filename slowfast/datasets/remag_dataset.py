@@ -12,7 +12,7 @@ from slowfast.datasets.build import DATASET_REGISTRY
 from slowfast.datasets import utils as data_utils
 
 @DATASET_REGISTRY.register()
-class CustomActionDataset(torch.utils.data.Dataset):
+class REMAGDataset(torch.utils.data.Dataset):
     def __init__(self, cfg, mode):
         self.cfg = cfg
         self.mode = mode
@@ -21,6 +21,8 @@ class CustomActionDataset(torch.utils.data.Dataset):
         self._frame_dir = cfg.DATA.PATH_TO_DATA_DIR
         self._num_retries = 10
         self._min_agreement_ratio = 0.8
+        self._enable_multigrid = cfg.MULTIGRID.ENABLE
+        self._enable_test_crops = cfg.TEST.NUM_SPATIAL_CROPS > 1
         self._construct_loader()
 
     def _construct_loader(self):
@@ -69,18 +71,35 @@ class CustomActionDataset(torch.utils.data.Dataset):
                                                 self.cfg.DATA.MEAN, self.cfg.DATA.STD) / 255.0
                     for frame in frames
                 ], dim=1)
+
+                if self._enable_multigrid and self.mode in ["train"]:
+                    short_cycle_idx = getattr(self.cfg, "SHORT_CYCLE_IDX", None)
+                    crop_size = self.cfg.DATA.TRAIN_CROP_SIZE
+                    if short_cycle_idx in [0, 1]:
+                        crop_size = int(round(self.cfg.MULTIGRID.SHORT_CYCLE_FACTORS[short_cycle_idx] * self.cfg.MULTIGRID.DEFAULT_S))
+                    min_scale = int(round(float(self.cfg.DATA.TRAIN_JITTER_SCALES[0]) * crop_size / self.cfg.MULTIGRID.DEFAULT_S))
+                else:
+                    crop_size = self.cfg.DATA.TRAIN_CROP_SIZE
+                    min_scale = self.cfg.DATA.TRAIN_JITTER_SCALES[0]
+
+                if self._enable_test_crops and self.mode == "test":
+                    spatial_sample_index = index % self.cfg.TEST.NUM_SPATIAL_CROPS
+                else:
+                    spatial_sample_index = -1 if self.mode in ["train"] else 1
+
                 frames = data_utils.spatial_sampling(
                     frames,
-                    spatial_idx=-1 if self.mode in ["train"] else 1,
-                    min_scale=self.cfg.DATA.TRAIN_JITTER_SCALES[0],
+                    spatial_idx=spatial_sample_index,
+                    min_scale=min_scale,
                     max_scale=self.cfg.DATA.TRAIN_JITTER_SCALES[1],
-                    crop_size=self.cfg.DATA.TRAIN_CROP_SIZE,
+                    crop_size=crop_size,
                     random_horizontal_flip=self.cfg.DATA.RANDOM_FLIP,
                     inverse_uniform_sampling=self.cfg.DATA.INV_UNIFORM_SAMPLE,
                     aspect_ratio=self.cfg.DATA.TRAIN_JITTER_ASPECT_RELATIVE if self.mode == "train" else None,
                     scale=self.cfg.DATA.TRAIN_JITTER_SCALES_RELATIVE if self.mode == "train" else None,
                     motion_shift=self.cfg.DATA.TRAIN_JITTER_MOTION_SHIFT if self.mode == "train" else False,
                 )
+
                 frames = data_utils.pack_pathway_output(self.cfg, frames)
                 return frames, label, index, 0, {}
             except Exception:
