@@ -7,6 +7,7 @@ from .charades import Charades  # noqa
 from .imagenet import Imagenet  # noqa
 from .kinetics import Kinetics  # noqa
 from .ssv2 import Ssv2  # noqa
+from .remag_dataset import REMAGDataset  # noqa
 
 try:
     from .ptv_datasets import Ptvcharades, Ptvkinetics, Ptvssv2  # noqa

@@ -1,20 +1,4 @@
-TRAIN:
-  ENABLE: True
-  DATASET: REMAGDataset
-  BATCH_SIZE: 16
-  EVAL_PERIOD: 10
-  CHECKPOINT_PERIOD: 10
-  AUTO_RESUME: True
-
-TEST:
-  ENABLE: True
-  DATASET: REMAGDataset
-  BATCH_SIZE: 64
-  NUM_SPATIAL_CROPS: 1
-  NUM_ENSEMBLE_VIEWS: 1  # Increase for final eval if needed
-
 DATA:
-  DATASET: REMAGDataset
   PATH_TO_DATA_DIR: ~/REMAG  
   NUM_FRAMES: 64
   SAMPLING_RATE: 2
@@ -31,6 +15,21 @@ DATA:
   STD: [58.395, 57.12, 57.375]
   TEST_CLASS_IDS: [5, 6, 8]
 
+TRAIN:
+  ENABLE: True
+  DATASET: "REMAGDataset"
+  BATCH_SIZE: 16
+  EVAL_PERIOD: 10
+  CHECKPOINT_PERIOD: 10
+  AUTO_RESUME: True
+
+TEST:
+  ENABLE: True
+  DATASET: "REMAGDataset"
+  BATCH_SIZE: 64
+  NUM_SPATIAL_CROPS: 1
+  NUM_ENSEMBLE_VIEWS: 1  # Increase for final eval if needed
+
 MODEL:
   NUM_CLASSES: 10  # <<< UPDATE to match your dataset
   ARCH: slow
@@ -40,7 +39,7 @@ MODEL:
 
 MVIT:
   ZERO_DECAY_POS_CLS: False
-  CLS_EMBED_ON: True
+  CLS_EMBED_ON: False # MUST STAY FALSE FOR REVMVIT
   SEP_POS_EMBED: True
   USE_ABS_POS: True
   DEPTH: 16
@@ -98,14 +97,11 @@ SOLVER:
   WARMUP_START_LR: 0.000001
   OPTIMIZING_METHOD: adamw
 
-MULTIGRID:
-  ENABLE: False  # Enable if you want to use short-cycle training
-
 DATA_LOADER:
   NUM_WORKERS: 8
   PIN_MEMORY: True
 
 NUM_GPUS: 1
-NUM_SHARDS: 16
+NUM_SHARDS: 1
 RNG_SEED: 0
 OUTPUT_DIR: ./outputs/remag
