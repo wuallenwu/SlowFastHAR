@@ -15,7 +15,7 @@ TEST:
 
 DATA:
   DATASET: REMAGDataset
-  PATH_TO_DATA_DIR: /path/to/remag/frames  # <<< UPDATE THIS
+  PATH_TO_DATA_DIR: ~/REMAG  
   NUM_FRAMES: 64
   SAMPLING_RATE: 2
   DECODING_BACKEND: torchvision  # Not used but safe to keep
@@ -29,6 +29,7 @@ DATA:
   RANDOM_FLIP: True
   MEAN: [123.675, 116.28, 103.53]  # Assuming [0, 255] RGB frames
   STD: [58.395, 57.12, 57.375]
+  TEST_CLASS_IDS: [5, 6, 8]
 
 MODEL:
   NUM_CLASSES: 10  # <<< UPDATE to match your dataset
@@ -104,7 +105,7 @@ DATA_LOADER:
   NUM_WORKERS: 8
   PIN_MEMORY: True
 
-NUM_GPUS: 8
+NUM_GPUS: 1
 NUM_SHARDS: 16
 RNG_SEED: 0
 OUTPUT_DIR: ./outputs/remag

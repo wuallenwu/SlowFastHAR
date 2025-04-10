@@ -1,11 +1,9 @@
 import os
 import json
 import random
-
 import torch
 import torch.utils.data
 import numpy as np
-
 from collections import Counter
 from slowfast.utils.env import pathmgr
 from slowfast.datasets.build import DATASET_REGISTRY
@@ -23,20 +21,24 @@ class REMAGDataset(torch.utils.data.Dataset):
         self._min_agreement_ratio = 0.8
         self._enable_multigrid = cfg.MULTIGRID.ENABLE
         self._enable_test_crops = cfg.TEST.NUM_SPATIAL_CROPS > 1
+        self._test_classes = getattr(cfg.DATA, "TEST_CLASS_IDS", [5, 6, 8])
         self._construct_loader()
 
     def _construct_loader(self):
         self._video_metadata = []
+
         folders = sorted(os.listdir(self._frame_dir))
         for folder in folders:
             folder_path = os.path.join(self._frame_dir, folder)
             if not os.path.isdir(folder_path):
                 continue
+
             label_path = os.path.join(folder_path, "labels.json")
             if not os.path.isfile(label_path):
                 label_path = os.path.join(os.path.dirname(folder_path), "labels.json")
             if not os.path.isfile(label_path):
                 continue
+
             try:
                 with open(label_path, "r") as f:
                     labels = json.load(f)
@@ -44,6 +46,7 @@ class REMAGDataset(torch.utils.data.Dataset):
                 activity_ids = labels["activity_ids"]
             except Exception:
                 continue
+
             valid_indices = []
             for i in range(0, len(frame_names) - self._num_frames + 1):
                 window = activity_ids[i:i + self._num_frames]
@@ -51,8 +54,16 @@ class REMAGDataset(torch.utils.data.Dataset):
                     continue
                 label_counts = Counter(window)
                 most_common_label, count = label_counts.most_common(1)[0]
+
+                # Class-wise split logic
+                if self.mode == "train" and most_common_label in self._test_classes:
+                    continue
+                if self.mode == "test" and most_common_label not in self._test_classes:
+                    continue
+
                 if count / self._num_frames >= self._min_agreement_ratio:
                     valid_indices.append((i, most_common_label))
+
             if valid_indices:
                 self._video_metadata.append((folder_path, frame_names, activity_ids, valid_indices))
 
@@ -67,12 +78,14 @@ class REMAGDataset(torch.utils.data.Dataset):
                     for fname in frame_list
                 ]
                 frames = torch.stack([
-                    data_utils.tensor_normalize(torch.from_numpy(frame).permute(2, 0, 1).float(),
-                                                self.cfg.DATA.MEAN, self.cfg.DATA.STD) / 255.0
-                    for frame in frames
+                    data_utils.tensor_normalize(
+                        torch.from_numpy(frame).permute(2, 0, 1).float(),
+                        self.cfg.DATA.MEAN,
+                        self.cfg.DATA.STD
+                    ) / 255.0 for frame in frames
                 ], dim=1)
 
-                if self._enable_multigrid and self.mode in ["train"]:
+                if self._enable_multigrid and self.mode == "train":
                     short_cycle_idx = getattr(self.cfg, "SHORT_CYCLE_IDX", None)
                     crop_size = self.cfg.DATA.TRAIN_CROP_SIZE
                     if short_cycle_idx in [0, 1]:
@@ -85,7 +98,7 @@ class REMAGDataset(torch.utils.data.Dataset):
                 if self._enable_test_crops and self.mode == "test":
                     spatial_sample_index = index % self.cfg.TEST.NUM_SPATIAL_CROPS
                 else:
-                    spatial_sample_index = -1 if self.mode in ["train"] else 1
+                    spatial_sample_index = -1 if self.mode == "train" else 1
 
                 frames = data_utils.spatial_sampling(
                     frames,
