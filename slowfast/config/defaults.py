@@ -653,6 +653,9 @@ _C.SLOWFAST.FUSION_KERNEL_SZ = 5
 # -----------------------------------------------------------------------------
 _C.DATA = CfgNode()
 
+# Train-test split classwise
+_C.DATA.TEST_CLASS_IDS = ""  
+
 # The path to the data directory.
 _C.DATA.PATH_TO_DATA_DIR = ""
 
