@@ -21,7 +21,7 @@ class REMAGDataset(torch.utils.data.Dataset):
         self._min_agreement_ratio = 0.8
         self._enable_test_crops = cfg.TEST.NUM_SPATIAL_CROPS > 1
         self._test_classes = getattr(cfg.DATA, "TEST_CLASS_IDS", [5, 6, 8])
-        self._enable_multigrid = hasattr(cfg, "MULTIGRID") and cfg.MULTIGRID.ENABLE
+        self._enable_multigrid = getattr(cfg.MULTIGRID, "ENABLE", False)
         self._construct_loader()
 
     def _construct_loader(self):
