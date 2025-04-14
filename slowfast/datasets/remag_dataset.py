@@ -19,32 +19,48 @@ class REMAGDataset(torch.utils.data.Dataset):
         self._frame_dir = cfg.DATA.PATH_TO_DATA_DIR
         self._num_retries = 10
         self._min_agreement_ratio = 0.8
-        self._enable_multigrid = cfg.MULTIGRID.ENABLE
         self._enable_test_crops = cfg.TEST.NUM_SPATIAL_CROPS > 1
         self._test_classes = getattr(cfg.DATA, "TEST_CLASS_IDS", [5, 6, 8])
+        self._enable_multigrid = hasattr(cfg, "MULTIGRID") and cfg.MULTIGRID.ENABLE
         self._construct_loader()
 
     def _construct_loader(self):
         self._video_metadata = []
+        total_folders = 0
+        skipped_folders = 0
+        total_valid_clips = 0
+        label_histogram = Counter()
 
         folders = sorted(os.listdir(self._frame_dir))
+        print(f"[INFO] Found {len(folders)} folders in: {self._frame_dir}")
+
         for folder in folders:
+            total_folders += 1
             folder_path = os.path.join(self._frame_dir, folder)
             if not os.path.isdir(folder_path):
+                print(f"[WARN] Skipping non-directory: {folder_path}")
+                skipped_folders += 1
                 continue
 
             label_path = os.path.join(folder_path, "labels.json")
             if not os.path.isfile(label_path):
-                label_path = os.path.join(os.path.dirname(folder_path), "labels.json")
-            if not os.path.isfile(label_path):
-                continue
+                alt_path = os.path.join(os.path.dirname(folder_path), "labels.json")
+                if os.path.isfile(alt_path):
+                    label_path = alt_path
+                else:
+                    print(f"[WARN] No labels.json found for {folder_path}, skipping.")
+                    skipped_folders += 1
+                    continue
 
             try:
                 with open(label_path, "r") as f:
                     labels = json.load(f)
                 frame_names = labels["file_names"]
                 activity_ids = labels["activity_ids"]
-            except Exception:
+                assert len(frame_names) == len(activity_ids), f"[ERROR] Mismatched frame/activity length in {folder_path}"
+            except Exception as e:
+                print(f"[ERROR] Failed to load labels.json for {folder_path}: {e}")
+                skipped_folders += 1
                 continue
 
             valid_indices = []
@@ -55,7 +71,10 @@ class REMAGDataset(torch.utils.data.Dataset):
                 label_counts = Counter(window)
                 most_common_label, count = label_counts.most_common(1)[0]
 
-                # Class-wise split logic
+                # Track label frequency
+                label_histogram[most_common_label] += 1
+
+                # Class filtering
                 if self.mode == "train" and most_common_label in self._test_classes:
                     continue
                 if self.mode == "test" and most_common_label not in self._test_classes:
@@ -66,6 +85,16 @@ class REMAGDataset(torch.utils.data.Dataset):
 
             if valid_indices:
                 self._video_metadata.append((folder_path, frame_names, activity_ids, valid_indices))
+                total_valid_clips += len(valid_indices)
+                print(f"[INFO] {folder_path}: {len(valid_indices)} valid clips.")
+            else:
+                print(f"[INFO] {folder_path}: 0 valid clips.")
+
+        print(f"[SUMMARY] Total folders: {total_folders}")
+        print(f"[SUMMARY] Skipped folders: {skipped_folders}")
+        print(f"[SUMMARY] Kept folders: {len(self._video_metadata)}")
+        print(f"[SUMMARY] Total valid clips: {total_valid_clips}")
+        print(f"[SUMMARY] Label histogram (post-filter): {dict(label_histogram)}")
 
     def __getitem__(self, index):
         for _ in range(self._num_retries):
@@ -115,10 +144,14 @@ class REMAGDataset(torch.utils.data.Dataset):
 
                 frames = data_utils.pack_pathway_output(self.cfg, frames)
                 return frames, label, index, 0, {}
-            except Exception:
+            except Exception as e:
+                print(f"[WARN] Exception during __getitem__: {e}")
                 index = random.randint(0, len(self._video_metadata) - 1)
                 continue
         raise RuntimeError(f"Failed to load data after {self._num_retries} retries")
 
     def __len__(self):
-        return len(self._video_metadata)
+        folder_count = len(self._video_metadata)
+        clip_count = sum(len(entry[3]) for entry in self._video_metadata)
+        print(f"[DEBUG] Dataset length called. Folders: {folder_count}, Total valid clips: {clip_count}")
+        return folder_count
