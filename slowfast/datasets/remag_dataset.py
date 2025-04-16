@@ -9,6 +9,29 @@ from slowfast.utils.env import pathmgr
 from slowfast.datasets.build import DATASET_REGISTRY
 from slowfast.datasets import utils as data_utils
 
+from PIL import Image
+import time
+
+def load_tensor_from_image(path):
+    # try:
+    img = Image.open(path).convert("RGB")
+    arr = np.array(img)
+    
+    # Fix any case where .convert("RGB") didn't result in 3 channels
+    if arr.ndim == 2:
+        arr = np.stack([arr] * 3, axis=-1)
+    elif arr.ndim == 3 and arr.shape[2] == 1:
+        arr = np.repeat(arr, 3, axis=2)
+    elif arr.ndim != 3 or arr.shape[2] != 3:
+        arr = np.zeros((224, 224, 3), dtype=np.uint8)  
+
+    tensor = torch.from_numpy(arr).permute(2, 0, 1).float() / 255.0
+
+    #assert the shape is ((224, 224, 3))
+    if tensor.ndim != 3 or tensor.shape[0] != 3:
+        raise ValueError(f"[ERROR] Loaded tensor has unexpected shape: {tensor.shape}")
+    return tensor
+
 @DATASET_REGISTRY.register()
 class REMAGDataset(torch.utils.data.Dataset):
     def __init__(self, cfg, mode):
@@ -17,7 +40,7 @@ class REMAGDataset(torch.utils.data.Dataset):
         self._num_frames = 64
         self._sample_rate = cfg.DATA.SAMPLING_RATE
         self._frame_dir = cfg.DATA.PATH_TO_DATA_DIR
-        self._num_retries = 10
+        self._num_retries = 1000
         self._min_agreement_ratio = 0.8
         self._enable_test_crops = cfg.TEST.NUM_SPATIAL_CROPS > 1
         self._test_classes = getattr(cfg.DATA, "TEST_CLASS_IDS", [5, 6, 8])
@@ -32,25 +55,27 @@ class REMAGDataset(torch.utils.data.Dataset):
         label_histogram = Counter()
 
         folders = sorted(os.listdir(self._frame_dir))
-        print(f"[INFO] Found {len(folders)} folders in: {self._frame_dir}")
+        # print(f"[INFO] Found {len(folders)} folders in: {self._frame_dir}")
 
         for folder in folders:
             total_folders += 1
             folder_path = os.path.join(self._frame_dir, folder)
             if not os.path.isdir(folder_path):
-                print(f"[WARN] Skipping non-directory: {folder_path}")
+                # print(f"[WARN] Skipping non-directory: {folder_path}")
                 skipped_folders += 1
                 continue
 
             label_path = os.path.join(folder_path, "labels.json")
             if not os.path.isfile(label_path):
-                alt_path = os.path.join(os.path.dirname(folder_path), "labels.json")
+                resolved_path = os.path.realpath(folder_path)
+                alt_path = os.path.join(os.path.dirname(resolved_path), "labels.json")
                 if os.path.isfile(alt_path):
                     label_path = alt_path
                 else:
-                    print(f"[WARN] No labels.json found for {folder_path}, skipping.")
+                    # print(f"[WARN] No labels.json found for {folder_path} (resolved: {resolved_path}), skipping.")
                     skipped_folders += 1
                     continue
+
 
             try:
                 with open(label_path, "r") as f:
@@ -86,9 +111,9 @@ class REMAGDataset(torch.utils.data.Dataset):
             if valid_indices:
                 self._video_metadata.append((folder_path, frame_names, activity_ids, valid_indices))
                 total_valid_clips += len(valid_indices)
-                print(f"[INFO] {folder_path}: {len(valid_indices)} valid clips.")
-            else:
-                print(f"[INFO] {folder_path}: 0 valid clips.")
+                # print(f"[INFO] {folder_path}: {len(valid_indices)} valid clips.")
+            # else:
+                # print(f"[INFO] {folder_path}: 0 valid clips.")
 
         print(f"[SUMMARY] Total folders: {total_folders}")
         print(f"[SUMMARY] Skipped folders: {skipped_folders}")
@@ -97,58 +122,96 @@ class REMAGDataset(torch.utils.data.Dataset):
         print(f"[SUMMARY] Label histogram (post-filter): {dict(label_histogram)}")
 
     def __getitem__(self, index):
-        for _ in range(self._num_retries):
-            try:
-                folder_path, frame_names, _, valid_indices = self._video_metadata[index]
-                start_idx, label = random.choice(valid_indices)
-                frame_list = frame_names[start_idx:start_idx + self._num_frames]
-                frames = [
-                    data_utils.retry_load_image(os.path.join(folder_path, fname))
-                    for fname in frame_list
-                ]
-                frames = torch.stack([
-                    data_utils.tensor_normalize(
-                        torch.from_numpy(frame).permute(2, 0, 1).float(),
-                        self.cfg.DATA.MEAN,
-                        self.cfg.DATA.STD
-                    ) / 255.0 for frame in frames
-                ], dim=1)
+        for retry in range(self._num_retries):
+            # try:
+            folder_path, frame_names, _, valid_indices = self._video_metadata[index]
+            start_idx, label = random.choice(valid_indices)
+            frame_list = frame_names[start_idx:start_idx + self._num_frames]
 
-                if self._enable_multigrid and self.mode == "train":
-                    short_cycle_idx = getattr(self.cfg, "SHORT_CYCLE_IDX", None)
-                    crop_size = self.cfg.DATA.TRAIN_CROP_SIZE
-                    if short_cycle_idx in [0, 1]:
-                        crop_size = int(round(self.cfg.MULTIGRID.SHORT_CYCLE_FACTORS[short_cycle_idx] * self.cfg.MULTIGRID.DEFAULT_S))
-                    min_scale = int(round(float(self.cfg.DATA.TRAIN_JITTER_SCALES[0]) * crop_size / self.cfg.MULTIGRID.DEFAULT_S))
-                else:
-                    crop_size = self.cfg.DATA.TRAIN_CROP_SIZE
-                    min_scale = self.cfg.DATA.TRAIN_JITTER_SCALES[0]
+            tensors = []
+            for fname in frame_list:
+                path = os.path.join(folder_path, fname)
+                # try:
+                tensor = load_tensor_from_image(path)
+                # normed = data_utils.tensor_normalize(
+                #     tensor, self.cfg.DATA.MEAN, self.cfg.DATA.STD
+                # )
+                tensors.append(tensor)
+                # except Exception as e:
+                #     # skip entire clip on bad frame
+                #     index = random.randint(0, len(self._video_metadata) - 1)
+                #     break  # try next clip
 
-                if self._enable_test_crops and self.mode == "test":
-                    spatial_sample_index = index % self.cfg.TEST.NUM_SPATIAL_CROPS
-                else:
-                    spatial_sample_index = -1 if self.mode == "train" else 1
+            if len(tensors) != self._num_frames:
+                continue  # try new clip
 
-                frames = data_utils.spatial_sampling(
-                    frames,
-                    spatial_idx=spatial_sample_index,
-                    min_scale=min_scale,
-                    max_scale=self.cfg.DATA.TRAIN_JITTER_SCALES[1],
-                    crop_size=crop_size,
-                    random_horizontal_flip=self.cfg.DATA.RANDOM_FLIP,
-                    inverse_uniform_sampling=self.cfg.DATA.INV_UNIFORM_SAMPLE,
-                    aspect_ratio=self.cfg.DATA.TRAIN_JITTER_ASPECT_RELATIVE if self.mode == "train" else None,
-                    scale=self.cfg.DATA.TRAIN_JITTER_SCALES_RELATIVE if self.mode == "train" else None,
-                    motion_shift=self.cfg.DATA.TRAIN_JITTER_MOTION_SHIFT if self.mode == "train" else False,
-                )
+            # try:
+            frames = torch.stack(tensors, dim=1)
+            # except Exception as e:
+            #     print("=" * 80)
+            #     print(f"[STACK ERROR] Failed stacking clip from {folder_path}")
+            #     for j, t in enumerate(tensors):
+            #         print(f"  -> [{j}] shape: {t.shape}, dtype: {t.dtype}")
+            #     print(f"Exception: {e}")
+            #     print("=" * 80)
+            #     index = random.randint(0, len(self._video_metadata) - 1)
+            #     continue  # try new clip
 
-                frames = data_utils.pack_pathway_output(self.cfg, frames)
-                return frames, label, index, 0, {}
-            except Exception as e:
-                print(f"[WARN] Exception during __getitem__: {e}")
-                index = random.randint(0, len(self._video_metadata) - 1)
-                continue
-        raise RuntimeError(f"Failed to load data after {self._num_retries} retries")
+            # Multigrid cropping logic
+            if self._enable_multigrid and self.mode == "train":
+                short_cycle_idx = getattr(self.cfg, "SHORT_CYCLE_IDX", None)
+                crop_size = self.cfg.DATA.TRAIN_CROP_SIZE
+                if short_cycle_idx in [0, 1]:
+                    crop_size = int(round(self.cfg.MULTIGRID.SHORT_CYCLE_FACTORS[short_cycle_idx] * self.cfg.MULTIGRID.DEFAULT_S))
+                min_scale = int(round(float(self.cfg.DATA.TRAIN_JITTER_SCALES[0]) * crop_size / self.cfg.MULTIGRID.DEFAULT_S))
+            else:
+                crop_size = self.cfg.DATA.TRAIN_CROP_SIZE
+                min_scale = self.cfg.DATA.TRAIN_JITTER_SCALES[0]
+
+            spatial_sample_index = (
+                index % self.cfg.TEST.NUM_SPATIAL_CROPS if self._enable_test_crops and self.mode == "test"
+                else -1 if self.mode == "train" else 1
+            )
+
+            # print("HIII WE REACHED HERE")
+
+            frames = data_utils.spatial_sampling(
+                frames,
+                spatial_idx=spatial_sample_index,
+                min_scale=min_scale,
+                max_scale=self.cfg.DATA.TRAIN_JITTER_SCALES[1],
+                crop_size=crop_size,
+                random_horizontal_flip=self.cfg.DATA.RANDOM_FLIP,
+                inverse_uniform_sampling=self.cfg.DATA.INV_UNIFORM_SAMPLE,
+                aspect_ratio=self.cfg.DATA.TRAIN_JITTER_ASPECT_RELATIVE if self.mode == "train" else None,
+                scale=self.cfg.DATA.TRAIN_JITTER_SCALES_RELATIVE if self.mode == "train" else None,
+                motion_shift=self.cfg.DATA.TRAIN_JITTER_MOTION_SHIFT if self.mode == "train" else False,
+            )
+
+
+            frames = data_utils.pack_pathway_output(self.cfg, frames)
+
+            # ======== DEBUG BLOCK =========
+            # print("\n[DEBUG] Returning from __getitem__()")
+            # if isinstance(frames, (list, tuple)):
+            #     print(f"frames: list of {len(frames)} pathways")
+            #     for i, f in enumerate(frames):
+            #         print(f"  - Pathway {i} shape: {f.shape}, dtype: {f.dtype}")
+            # else:
+            #     print(f"frames shape: {frames.shape}, dtype: {frames.dtype}")
+
+            # print(f"label: {label} (type: {type(label)})")
+            # print(f"index: {index}")
+            # ======== ACTUAL RETURN =======
+
+
+            return frames, label, index, 0, {}
+
+            # except Exception:
+            #     index = random.randint(0, len(self._video_metadata) - 1)
+            #     continue
+
+        # raise RuntimeError(f"Failed to load data after {self._num_retries} retries (last index tried: {index})")
 
     def __len__(self):
         folder_count = len(self._video_metadata)

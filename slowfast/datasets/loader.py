@@ -30,9 +30,15 @@ def multiple_samples_collate(batch, fold=False):
     """
     inputs, labels, video_idx, time, extra_data = zip(*batch)
     inputs = [item for sublist in inputs for item in sublist]
-    labels = [item for sublist in labels for item in sublist]
-    video_idx = [item for sublist in video_idx for item in sublist]
-    time = [item for sublist in time for item in sublist]
+    # print(labels)
+    # labels = [item for item in labels]
+    # video_idx = [item for item in video_idx]
+    # time = [item for item in time]
+    # print(inputs)
+    # print(labels)
+    # print(video_idx)
+    # print(time)
+    # print(extra_data)
 
     inputs, labels, video_idx, time, extra_data = (
         default_collate(inputs),

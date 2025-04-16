@@ -1,5 +1,4 @@
 DATA:
-  DATA:
   PATH_TO_DATA_DIR: /home/allenwu/REMAG/Sequences
 
   NUM_FRAMES: 64
@@ -41,7 +40,7 @@ MODEL:
 
 MVIT:
   ZERO_DECAY_POS_CLS: False
-  CLS_EMBED_ON: False # MUST STAY FALSE FOR REVMVIT
+  CLS_EMBED_ON: True #???? Confusing
   SEP_POS_EMBED: True
   USE_ABS_POS: True
   DEPTH: 16
@@ -62,7 +61,7 @@ MVIT:
   POOL_Q_STRIDE: [[1, 1, 2, 2], [3, 1, 2, 2], [14, 1, 2, 2]]
 
   REV:
-    ENABLE: True
+    ENABLE: False
     RESPATH_FUSE: "concat"
     BUFFER_LAYERS: [1, 3, 14]
     RES_PATH: "conv"
@@ -98,6 +97,10 @@ SOLVER:
   ZERO_WD_1D_PARAM: True
   WARMUP_START_LR: 0.000001
   OPTIMIZING_METHOD: adamw
+
+
+SLOWFAST:
+  ALPHA: 4          
 
 DATA_LOADER:
   NUM_WORKERS: 8
