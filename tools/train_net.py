@@ -28,6 +28,11 @@ from slowfast.models.contrastive import (
 from slowfast.utils.meters import AVAMeter, EpochTimer, TrainMeter, ValMeter
 from slowfast.utils.multigrid import MultigridSchedule
 
+from accelerate import Accelerator
+
+accelerator = Accelerator(mixed_precision="bf16")
+
+
 logger = logging.get_logger(__name__)
 
 
@@ -521,8 +526,8 @@ def train(cfg):
     # Build the video model and print model statistics.
     model = build_model(cfg)
     flops, params = 0.0, 0.0
-    if du.is_master_proc() and cfg.LOG_MODEL_INFO:
-        flops, params = misc.log_model_info(model, cfg, use_train_input=True)
+    # if du.is_master_proc() and cfg.LOG_MODEL_INFO:
+    #     flops, params = misc.log_model_info(model, cfg, use_train_input=True)
 
     # Construct the optimizer.
     optimizer = optim.construct_optimizer(model, cfg)
@@ -655,16 +660,17 @@ def train(cfg):
             train_loader.dataset._set_epoch_num(cur_epoch)
         # Train for one epoch.
         epoch_timer.epoch_tic()
-        train_epoch(
-            train_loader,
-            model,
-            optimizer,
-            scaler,
-            train_meter,
-            cur_epoch,
-            cfg,
-            writer,
-        )
+        with accelerator.autocast():
+            train_epoch(
+                train_loader,
+                model,
+                optimizer,
+                scaler,
+                train_meter,
+                cur_epoch,
+                cfg,
+                writer,
+            )
         epoch_timer.epoch_toc()
         logger.info(
             f"Epoch {cur_epoch} takes {epoch_timer.last_epoch_time():.2f}s. Epochs "
@@ -722,15 +728,16 @@ def train(cfg):
             )
         # Evaluate the model on validation set.
         if is_eval_epoch:
-            eval_epoch(
-                val_loader,
-                model,
-                val_meter,
-                cur_epoch,
-                cfg,
-                train_loader,
-                writer,
-            )
+            with accelerator.autocast():
+                eval_epoch(
+                    val_loader,
+                    model,
+                    val_meter,
+                    cur_epoch,
+                    cfg,
+                    train_loader,
+                    writer,
+                )
     if (
         start_epoch == cfg.SOLVER.MAX_EPOCH and not cfg.MASK.ENABLE
     ):  # final checkpoint load
