@@ -1,4 +1,5 @@
 import os
+import glob
 import json
 import random
 import torch
@@ -60,20 +61,37 @@ class REMAGDataset(torch.utils.data.Dataset):
         for folder in folders:
             total_folders += 1
             folder_path = os.path.join(self._frame_dir, folder)
+
             if not os.path.isdir(folder_path):
-                # print(f"[WARN] Skipping non-directory: {folder_path}")
+                print(f"[WARN] {folder_path} is not a directory. Skipping.")
                 skipped_folders += 1
                 continue
 
+            # 1) try the standard labels.json
             label_path = os.path.join(folder_path, "labels.json")
-            if not os.path.isfile(label_path):
-                resolved_path = os.path.realpath(folder_path)
-                alt_path = os.path.join(os.path.dirname(resolved_path), "labels.json")
-                if os.path.isfile(alt_path):
-                    label_path = alt_path
+            if os.path.isfile(label_path):
+                # good, found the canonical file
+                pass
+
+            else:
+                # 2) fallback: resolve symlink → look for any .json in its parent
+                resolved = os.path.realpath(folder_path)
+                parent = os.path.dirname(resolved)
+                # glob all JSON files
+                candidates = glob.glob(os.path.join(parent, "*.json"))
+
+                if candidates:
+                    # pick the first JSON we find
+                    chosen = os.path.basename(candidates[0])
+                    label_path = candidates[0]
+                    # print(
+                    #     # f"[WARN] '{chosen}' found in parent {parent!r} "
+                    #     # f"for {folder_path!r}—using that instead of labels.json"
+                    # )
                 else:
-                    # print(f"[WARN] No labels.json found for {folder_path} (resolved: {resolved_path}), skipping.")
+                    # 3) still nothing, skip
                     skipped_folders += 1
+                    print(f"[WARN] No labels.json found in {folder_path} or its parent.")
                     continue
 
 
