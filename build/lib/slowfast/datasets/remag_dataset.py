@@ -205,7 +205,7 @@ class REMAGDataset(torch.utils.data.Dataset):
             # ======== ACTUAL RETURN =======
 
 
-            return [frames], label, index, 0, {}
+            return frames, label, index, 0, {}
 
             # except Exception:
             #     index = random.randint(0, len(self._video_metadata) - 1)

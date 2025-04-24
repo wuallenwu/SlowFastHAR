@@ -19,7 +19,7 @@ DATA:
 TRAIN:
   ENABLE: True
   DATASET: "REMAGDataset"
-  BATCH_SIZE: 16
+  BATCH_SIZE: 4
   EVAL_PERIOD: 10
   CHECKPOINT_PERIOD: 10
   AUTO_RESUME: True
@@ -27,7 +27,7 @@ TRAIN:
 TEST:
   ENABLE: True
   DATASET: "REMAGDataset"
-  BATCH_SIZE: 64
+  BATCH_SIZE: 4
   NUM_SPATIAL_CROPS: 1
   NUM_ENSEMBLE_VIEWS: 1  # Increase for final eval if needed
 
@@ -99,14 +99,14 @@ SOLVER:
   OPTIMIZING_METHOD: adamw
 
 
-SLOWFAST:
-  ALPHA: 4          
+# SLOWFAST:
+#   ALPHA: 4          
 
 DATA_LOADER:
   NUM_WORKERS: 8
   PIN_MEMORY: True
 
-NUM_GPUS: 0
+NUM_GPUS: 2
 NUM_SHARDS: 1
 RNG_SEED: 0
 OUTPUT_DIR: ./outputs/remag
