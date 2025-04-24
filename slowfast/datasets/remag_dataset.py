@@ -56,7 +56,6 @@ class REMAGDataset(torch.utils.data.Dataset):
         label_histogram = Counter()
 
         folders = sorted(os.listdir(self._frame_dir))
-        # print(f"[INFO] Found {len(folders)} folders in: {self._frame_dir}")
 
         for folder in folders:
             total_folders += 1
@@ -70,31 +69,22 @@ class REMAGDataset(torch.utils.data.Dataset):
             # 1) try the standard labels.json
             label_path = os.path.join(folder_path, "labels.json")
             if os.path.isfile(label_path):
-                # good, found the canonical file
                 pass
 
             else:
-                # 2) fallback: resolve symlink → look for any .json in its parent
+                # 2) fallback: resolve symlink by look for any .json in its parent
                 resolved = os.path.realpath(folder_path)
                 parent = os.path.dirname(resolved)
-                # glob all JSON files
                 candidates = glob.glob(os.path.join(parent, "*.json"))
 
                 if candidates:
-                    # pick the first JSON we find
                     chosen = os.path.basename(candidates[0])
                     label_path = candidates[0]
-                    # print(
-                    #     # f"[WARN] '{chosen}' found in parent {parent!r} "
-                    #     # f"for {folder_path!r}—using that instead of labels.json"
-                    # )
                 else:
                     # 3) still nothing, skip
                     skipped_folders += 1
                     print(f"[WARN] No labels.json found in {folder_path} or its parent.")
                     continue
-
-
             try:
                 with open(label_path, "r") as f:
                     labels = json.load(f)
@@ -114,10 +104,7 @@ class REMAGDataset(torch.utils.data.Dataset):
                 label_counts = Counter(window)
                 most_common_label, count = label_counts.most_common(1)[0]
 
-                # Track label frequency
                 label_histogram[most_common_label] += 1
-
-                # Class filtering
                 if self.mode == "train" and most_common_label in self._test_classes:
                     continue
                 if self.mode == "test" and most_common_label not in self._test_classes:
@@ -129,9 +116,6 @@ class REMAGDataset(torch.utils.data.Dataset):
             if valid_indices:
                 self._video_metadata.append((folder_path, frame_names, activity_ids, valid_indices))
                 total_valid_clips += len(valid_indices)
-                # print(f"[INFO] {folder_path}: {len(valid_indices)} valid clips.")
-            # else:
-                # print(f"[INFO] {folder_path}: 0 valid clips.")
 
         print(f"[SUMMARY] Total folders: {total_folders}")
         print(f"[SUMMARY] Skipped folders: {skipped_folders}")
@@ -149,31 +133,10 @@ class REMAGDataset(torch.utils.data.Dataset):
             tensors = []
             for fname in frame_list:
                 path = os.path.join(folder_path, fname)
-                # try:
                 tensor = load_tensor_from_image(path)
-                # normed = data_utils.tensor_normalize(
-                #     tensor, self.cfg.DATA.MEAN, self.cfg.DATA.STD
-                # )
                 tensors.append(tensor)
-                # except Exception as e:
-                #     # skip entire clip on bad frame
-                #     index = random.randint(0, len(self._video_metadata) - 1)
-                #     break  # try next clip
 
-            if len(tensors) != self._num_frames:
-                continue  # try new clip
-
-            # try:
             frames = torch.stack(tensors, dim=1)
-            # except Exception as e:
-            #     print("=" * 80)
-            #     print(f"[STACK ERROR] Failed stacking clip from {folder_path}")
-            #     for j, t in enumerate(tensors):
-            #         print(f"  -> [{j}] shape: {t.shape}, dtype: {t.dtype}")
-            #     print(f"Exception: {e}")
-            #     print("=" * 80)
-            #     index = random.randint(0, len(self._video_metadata) - 1)
-            #     continue  # try new clip
 
             # Multigrid cropping logic
             if self._enable_multigrid and self.mode == "train":
@@ -191,8 +154,6 @@ class REMAGDataset(torch.utils.data.Dataset):
                 else -1 if self.mode == "train" else 1
             )
 
-            # print("HIII WE REACHED HERE")
-
             frames = data_utils.spatial_sampling(
                 frames,
                 spatial_idx=spatial_sample_index,
@@ -205,8 +166,6 @@ class REMAGDataset(torch.utils.data.Dataset):
                 scale=self.cfg.DATA.TRAIN_JITTER_SCALES_RELATIVE if self.mode == "train" else None,
                 motion_shift=self.cfg.DATA.TRAIN_JITTER_MOTION_SHIFT if self.mode == "train" else False,
             )
-
-
             frames = data_utils.pack_pathway_output(self.cfg, frames)
 
             # ======== DEBUG BLOCK =========
@@ -220,16 +179,8 @@ class REMAGDataset(torch.utils.data.Dataset):
 
             # print(f"label: {label} (type: {type(label)})")
             # print(f"index: {index}")
-            # ======== ACTUAL RETURN =======
-
 
             return [frames], label, index, 0, {}
-
-            # except Exception:
-            #     index = random.randint(0, len(self._video_metadata) - 1)
-            #     continue
-
-        # raise RuntimeError(f"Failed to load data after {self._num_retries} retries (last index tried: {index})")
 
     def __len__(self):
         folder_count = len(self._video_metadata)
