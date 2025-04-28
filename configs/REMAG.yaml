@@ -12,7 +12,7 @@ DATA:
   TRAIN_JITTER_ASPECT_RELATIVE: [0.75, 1.3333]
   INV_UNIFORM_SAMPLE: False
   RANDOM_FLIP: True
-  MEAN: [123.675, 116.28, 103.53]  # Assuming [0, 255] RGB frames
+  MEAN: [123.675, 116.28, 103.53]  
   STD: [58.395, 57.12, 57.375]
   TEST_CLASS_IDS: [5, 6, 8]
 
@@ -32,7 +32,7 @@ TEST:
   NUM_ENSEMBLE_VIEWS: 1  # Increase for final eval if needed
 
 MODEL:
-  NUM_CLASSES: 16
+  NUM_CLASSES: 10
   ARCH: slow
   MODEL_NAME: MViT
   LOSS_FUNC: soft_cross_entropy
@@ -58,7 +58,7 @@ MVIT:
   HEAD_MUL: [[1, 2.0], [3, 2.0], [14, 2.0]]
   POOL_KVQ_KERNEL: [3, 3, 3]
   POOL_KV_STRIDE_ADAPTIVE: [1, 8, 8]
-  POOL_Q_STRIDE: [[1, 1, 2, 2], [3, 1, 2, 2], [14, 1, 2, 2]]
+  POOL_Q_STRIDE: [[2, 4, 8, 8], [4, 4, 8, 8], [8, 4, 8, 8]]
 
   REV:
     ENABLE: False
@@ -106,7 +106,7 @@ DATA_LOADER:
   NUM_WORKERS: 8
   PIN_MEMORY: True
 
-NUM_GPUS: 0
+NUM_GPUS: 1
 NUM_SHARDS: 1
 RNG_SEED: 0
 OUTPUT_DIR: ./outputs/remag
