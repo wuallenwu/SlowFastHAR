@@ -1,4 +1,5 @@
 import os
+import re
 import glob
 import json
 import random
@@ -36,7 +37,7 @@ class REMAGDataset(torch.utils.data.Dataset):
     def __init__(self, cfg, mode):
         self.cfg = cfg
         self.mode = mode
-        self._num_frames = 64
+        self._num_frames = cfg.DATA.NUM_FRAMES
         self._sample_rate = cfg.DATA.SAMPLING_RATE
         self._frame_dir = cfg.DATA.PATH_TO_DATA_DIR
         self._num_retries = 100
@@ -58,6 +59,17 @@ class REMAGDataset(torch.utils.data.Dataset):
         for folder in folders:
             total_folders += 1
             folder_path = os.path.join(self._frame_dir, folder)
+
+            match = re.search(r"Subj\+0*([0-9]+)", folder)
+            if not match:
+                continue  
+            subject_id = int(match.group(1))
+            is_test = subject_id in self._test_classes
+            if (self.mode == "train" and is_test) or (self.mode == "test" and not is_test):
+                continue  
+            # print(f"[DEBUG] Mode: {self.mode}, using TEST_CLASS_IDS: {self._test_classes}")
+            # print(f"[DEBUG] Loaded {len(self._video_metadata)} folders with valid clips")
+
 
             if not os.path.isdir(folder_path):
                 print(f"[WARN] {folder_path} is not a directory. Skipping.")
@@ -121,6 +133,11 @@ class REMAGDataset(torch.utils.data.Dataset):
             if valid_indices:
                 self._video_metadata.append((folder_path, frame_names, activity_ids, valid_indices))
                 total_valid_clips += len(valid_indices)
+        self._flat_index = []
+        for folder_idx, (_, _, _, valid_clips) in enumerate(self._video_metadata):
+            for clip_idx in range(len(valid_clips)):
+                self._flat_index.append((folder_idx, clip_idx))
+
 
         print(f"[SUMMARY] Total folders: {total_folders}")
         print(f"[SUMMARY] Skipped folders: {skipped_folders}")
@@ -130,15 +147,16 @@ class REMAGDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         for retry in range(self._num_retries):
-            folder_path, frame_names, _, valid_indices = self._video_metadata[index]
+            folder_idx, clip_idx = self._flat_index[index]
+            folder_path, frame_names, _, valid_indices = self._video_metadata[folder_idx]
 
             if not valid_indices:
-                print(f"[WARN] No valid clips in folder at index {index}. Skipping.")
-                next_index = (index + 1) % len(self._video_metadata)
-                return self.__getitem__(next_index)
+                index = (index + 1) % len(self)
+                continue
 
-            start_idx, label = random.choice(valid_indices)
-            frame_list = frame_names[start_idx:start_idx + self._num_frames]
+            start_idx, label = valid_indices[clip_idx]
+            frame_list = frame_names[start_idx : start_idx + self._num_frames * self._sample_rate : self._sample_rate]
+
 
             tensors = []
             for fname in frame_list:
@@ -164,21 +182,23 @@ class REMAGDataset(torch.utils.data.Dataset):
                 print(f"[WARN] Empty frames for index {index}. Trying next.")
                 next_index = (index + 1) % len(self._video_metadata)
                 return self.__getitem__(next_index)
-            print(f"[INFO] Successfully loaded frames for index {index} on retry {retry + 1}.")
+            if frames[0].shape[-2:] != (224, 224):
+                print(f"[WARN] Bad frame shape: {frames[0].shape[-2:]}, skipping")
+                next_index = (index + 1) % len(self._video_metadata)
+                return self.__getitem__(next_index)
+            # print(f"[INFO] Successfully loaded frames for index {index} on retry {retry + 1}.")
             return [frames], label, index, 0, {}
 
         # If all retries fail
-        print(f"[WARN] No valid frames for index {index} after {self._num_retries} retries. Trying next index.")
+        # print(f"[WARN] No valid frames for index {index} after {self._num_retries} retries. Trying next index.")
         next_index = (index + 1) % len(self._video_metadata)
         return self.__getitem__(next_index)
 
     # If all retries fail
-        print(f"[WARN] No valid frames for index {index} after {self._num_retries} retries. Trying next index.")
+        # print(f"[WARN] No valid frames for index {index} after {self._num_retries} retries. Trying next index.")
         next_index = (index + 1) % len(self._video_metadata)
         return self.__getitem__(next_index)
 
 
     def __len__(self):
-        folder_count = len(self._video_metadata)
-        clip_count = sum(len(entry[3]) for entry in self._video_metadata)
-        return folder_count
+        return len(self._flat_index)
