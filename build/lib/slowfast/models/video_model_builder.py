@@ -1168,7 +1168,8 @@ class MViT(nn.Module):
         x, bcthw = self.patch_embed(x)
         bcthw = list(bcthw)
         if len(bcthw) == 4:  # Fix bcthw in case of 4D tensor
-            bcthw.insert(2, torch.tensor(self.T))
+            # bcthw.insert(2, torch.tensor(self.T))
+            bcthw = [1] + bcthw
         T, H, W = bcthw[-3], bcthw[-2], bcthw[-1]
         assert len(bcthw) == 5 and (T, H, W) == (self.T, self.H, self.W), bcthw
         B, N, C = x.shape

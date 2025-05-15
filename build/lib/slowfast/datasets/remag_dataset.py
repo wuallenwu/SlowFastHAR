@@ -1,16 +1,16 @@
 import os
+import re
+import glob
 import json
 import random
 import torch
 import torch.utils.data
 import numpy as np
 from collections import Counter
-from slowfast.utils.env import pathmgr
 from slowfast.datasets.build import DATASET_REGISTRY
 from slowfast.datasets import utils as data_utils
 
 from PIL import Image
-import time
 
 def load_tensor_from_image(path):
     # try:
@@ -37,10 +37,10 @@ class REMAGDataset(torch.utils.data.Dataset):
     def __init__(self, cfg, mode):
         self.cfg = cfg
         self.mode = mode
-        self._num_frames = 64
+        self._num_frames = cfg.DATA.NUM_FRAMES
         self._sample_rate = cfg.DATA.SAMPLING_RATE
         self._frame_dir = cfg.DATA.PATH_TO_DATA_DIR
-        self._num_retries = 1000
+        self._num_retries = 100
         self._min_agreement_ratio = 0.8
         self._enable_test_crops = cfg.TEST.NUM_SPATIAL_CROPS > 1
         self._test_classes = getattr(cfg.DATA, "TEST_CLASS_IDS", [5, 6, 8])
@@ -55,28 +55,45 @@ class REMAGDataset(torch.utils.data.Dataset):
         label_histogram = Counter()
 
         folders = sorted(os.listdir(self._frame_dir))
-        # print(f"[INFO] Found {len(folders)} folders in: {self._frame_dir}")
 
         for folder in folders:
             total_folders += 1
             folder_path = os.path.join(self._frame_dir, folder)
+
+            match = re.search(r"Subj\+0*([0-9]+)", folder)
+            if not match:
+                continue  
+            subject_id = int(match.group(1))
+            is_test = subject_id in self._test_classes
+            if (self.mode == "train" and is_test) or (self.mode == "test" and not is_test):
+                continue  
+            # print(f"[DEBUG] Mode: {self.mode}, using TEST_CLASS_IDS: {self._test_classes}")
+            # print(f"[DEBUG] Loaded {len(self._video_metadata)} folders with valid clips")
+
+
             if not os.path.isdir(folder_path):
-                # print(f"[WARN] Skipping non-directory: {folder_path}")
+                print(f"[WARN] {folder_path} is not a directory. Skipping.")
                 skipped_folders += 1
                 continue
 
+            # 1) try the standard labels.json
             label_path = os.path.join(folder_path, "labels.json")
-            if not os.path.isfile(label_path):
-                resolved_path = os.path.realpath(folder_path)
-                alt_path = os.path.join(os.path.dirname(resolved_path), "labels.json")
-                if os.path.isfile(alt_path):
-                    label_path = alt_path
+            if os.path.isfile(label_path):
+                pass
+            else:
+                # 2) fallback: resolve symlink by look for any .json in its parent
+                resolved = os.path.realpath(folder_path)
+                parent = os.path.dirname(resolved)
+                candidates = glob.glob(os.path.join(parent, "*.json"))
+
+                if candidates:
+                    chosen = os.path.basename(candidates[0])
+                    label_path = candidates[0]
                 else:
-                    # print(f"[WARN] No labels.json found for {folder_path} (resolved: {resolved_path}), skipping.")
+                    # 3) still nothing, skip
                     skipped_folders += 1
+                    print(f"[WARN] No labels.json found in {folder_path} or its parent.")
                     continue
-
-
             try:
                 with open(label_path, "r") as f:
                     labels = json.load(f)
@@ -88,6 +105,14 @@ class REMAGDataset(torch.utils.data.Dataset):
                 skipped_folders += 1
                 continue
 
+            # --- Check and skip folders containing confound classes [6-11] ---
+            if any(6 <= label <= 11 for label in activity_ids):
+                skipped_folders += 1
+                continue
+
+            # --- Relabel labels in [11,12,13,14,15] by subtracting 5 ---
+            activity_ids = [label - 5 if label in {11, 12, 13, 14, 15} else label for label in activity_ids]
+
             valid_indices = []
             for i in range(0, len(frame_names) - self._num_frames + 1):
                 window = activity_ids[i:i + self._num_frames]
@@ -96,10 +121,7 @@ class REMAGDataset(torch.utils.data.Dataset):
                 label_counts = Counter(window)
                 most_common_label, count = label_counts.most_common(1)[0]
 
-                # Track label frequency
                 label_histogram[most_common_label] += 1
-
-                # Class filtering
                 if self.mode == "train" and most_common_label in self._test_classes:
                     continue
                 if self.mode == "test" and most_common_label not in self._test_classes:
@@ -111,9 +133,11 @@ class REMAGDataset(torch.utils.data.Dataset):
             if valid_indices:
                 self._video_metadata.append((folder_path, frame_names, activity_ids, valid_indices))
                 total_valid_clips += len(valid_indices)
-                # print(f"[INFO] {folder_path}: {len(valid_indices)} valid clips.")
-            # else:
-                # print(f"[INFO] {folder_path}: 0 valid clips.")
+        self._flat_index = []
+        for folder_idx, (_, _, _, valid_clips) in enumerate(self._video_metadata):
+            for clip_idx in range(len(valid_clips)):
+                self._flat_index.append((folder_idx, clip_idx))
+
 
         print(f"[SUMMARY] Total folders: {total_folders}")
         print(f"[SUMMARY] Skipped folders: {skipped_folders}")
@@ -123,98 +147,58 @@ class REMAGDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         for retry in range(self._num_retries):
-            # try:
-            folder_path, frame_names, _, valid_indices = self._video_metadata[index]
-            start_idx, label = random.choice(valid_indices)
-            frame_list = frame_names[start_idx:start_idx + self._num_frames]
+            folder_idx, clip_idx = self._flat_index[index]
+            folder_path, frame_names, _, valid_indices = self._video_metadata[folder_idx]
+
+            if not valid_indices:
+                index = (index + 1) % len(self)
+                continue
+
+            start_idx, label = valid_indices[clip_idx]
+            frame_list = frame_names[start_idx : start_idx + self._num_frames * self._sample_rate : self._sample_rate]
+
 
             tensors = []
             for fname in frame_list:
                 path = os.path.join(folder_path, fname)
-                # try:
-                tensor = load_tensor_from_image(path)
-                # normed = data_utils.tensor_normalize(
-                #     tensor, self.cfg.DATA.MEAN, self.cfg.DATA.STD
-                # )
+                if not os.path.isfile(path):
+                    tensors = []
+                    break
+                try:
+                    tensor = load_tensor_from_image(path)
+                except Exception as e:
+                    tensors = []
+                    break
                 tensors.append(tensor)
-                # except Exception as e:
-                #     # skip entire clip on bad frame
-                #     index = random.randint(0, len(self._video_metadata) - 1)
-                #     break  # try next clip
 
             if len(tensors) != self._num_frames:
-                continue  # try new clip
+                continue
 
-            # try:
             frames = torch.stack(tensors, dim=1)
-            # except Exception as e:
-            #     print("=" * 80)
-            #     print(f"[STACK ERROR] Failed stacking clip from {folder_path}")
-            #     for j, t in enumerate(tensors):
-            #         print(f"  -> [{j}] shape: {t.shape}, dtype: {t.dtype}")
-            #     print(f"Exception: {e}")
-            #     print("=" * 80)
-            #     index = random.randint(0, len(self._video_metadata) - 1)
-            #     continue  # try new clip
-
-            # Multigrid cropping logic
-            if self._enable_multigrid and self.mode == "train":
-                short_cycle_idx = getattr(self.cfg, "SHORT_CYCLE_IDX", None)
-                crop_size = self.cfg.DATA.TRAIN_CROP_SIZE
-                if short_cycle_idx in [0, 1]:
-                    crop_size = int(round(self.cfg.MULTIGRID.SHORT_CYCLE_FACTORS[short_cycle_idx] * self.cfg.MULTIGRID.DEFAULT_S))
-                min_scale = int(round(float(self.cfg.DATA.TRAIN_JITTER_SCALES[0]) * crop_size / self.cfg.MULTIGRID.DEFAULT_S))
-            else:
-                crop_size = self.cfg.DATA.TRAIN_CROP_SIZE
-                min_scale = self.cfg.DATA.TRAIN_JITTER_SCALES[0]
-
-            spatial_sample_index = (
-                index % self.cfg.TEST.NUM_SPATIAL_CROPS if self._enable_test_crops and self.mode == "test"
-                else -1 if self.mode == "train" else 1
-            )
-
-            # print("HIII WE REACHED HERE")
-
-            frames = data_utils.spatial_sampling(
-                frames,
-                spatial_idx=spatial_sample_index,
-                min_scale=min_scale,
-                max_scale=self.cfg.DATA.TRAIN_JITTER_SCALES[1],
-                crop_size=crop_size,
-                random_horizontal_flip=self.cfg.DATA.RANDOM_FLIP,
-                inverse_uniform_sampling=self.cfg.DATA.INV_UNIFORM_SAMPLE,
-                aspect_ratio=self.cfg.DATA.TRAIN_JITTER_ASPECT_RELATIVE if self.mode == "train" else None,
-                scale=self.cfg.DATA.TRAIN_JITTER_SCALES_RELATIVE if self.mode == "train" else None,
-                motion_shift=self.cfg.DATA.TRAIN_JITTER_MOTION_SHIFT if self.mode == "train" else False,
-            )
-
 
             frames = data_utils.pack_pathway_output(self.cfg, frames)
 
-            # ======== DEBUG BLOCK =========
-            # print("\n[DEBUG] Returning from __getitem__()")
-            # if isinstance(frames, (list, tuple)):
-            #     print(f"frames: list of {len(frames)} pathways")
-            #     for i, f in enumerate(frames):
-            #         print(f"  - Pathway {i} shape: {f.shape}, dtype: {f.dtype}")
-            # else:
-            #     print(f"frames shape: {frames.shape}, dtype: {frames.dtype}")
+            if frames is None or frames[0].numel() == 0:
+                print(f"[WARN] Empty frames for index {index}. Trying next.")
+                next_index = (index + 1) % len(self._video_metadata)
+                return self.__getitem__(next_index)
+            if frames[0].shape[-2:] != (224, 224):
+                print(f"[WARN] Bad frame shape: {frames[0].shape[-2:]}, skipping")
+                next_index = (index + 1) % len(self._video_metadata)
+                return self.__getitem__(next_index)
+            # print(f"[INFO] Successfully loaded frames for index {index} on retry {retry + 1}.")
+            return [frames], label, index, 0, {}
 
-            # print(f"label: {label} (type: {type(label)})")
-            # print(f"index: {index}")
-            # ======== ACTUAL RETURN =======
+        # If all retries fail
+        # print(f"[WARN] No valid frames for index {index} after {self._num_retries} retries. Trying next index.")
+        next_index = (index + 1) % len(self._video_metadata)
+        return self.__getitem__(next_index)
 
+    # If all retries fail
+        # print(f"[WARN] No valid frames for index {index} after {self._num_retries} retries. Trying next index.")
+        next_index = (index + 1) % len(self._video_metadata)
+        return self.__getitem__(next_index)
 
-            return frames, label, index, 0, {}
-
-            # except Exception:
-            #     index = random.randint(0, len(self._video_metadata) - 1)
-            #     continue
-
-        # raise RuntimeError(f"Failed to load data after {self._num_retries} retries (last index tried: {index})")
 
     def __len__(self):
-        folder_count = len(self._video_metadata)
-        clip_count = sum(len(entry[3]) for entry in self._video_metadata)
-        print(f"[DEBUG] Dataset length called. Folders: {folder_count}, Total valid clips: {clip_count}")
-        return folder_count
+        return len(self._flat_index)

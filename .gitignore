@@ -7,3 +7,5 @@ outputs/
 *.egg-info/
 pytorchvideo/
 detectron2_repo/
+pretrained/
+src/
