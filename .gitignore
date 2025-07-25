@@ -9,3 +9,4 @@ pytorchvideo/
 detectron2_repo/
 pretrained/
 src/
+LHM/

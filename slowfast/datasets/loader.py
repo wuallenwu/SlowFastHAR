@@ -106,19 +106,23 @@ def construct_loader(cfg, split, is_precise_bn=False):
         batch_size = int(cfg.TRAIN.BATCH_SIZE / max(1, cfg.NUM_GPUS))
         shuffle = True
         drop_last = True
+        persistent_workers=True
     elif split in ["val"]:
         dataset_name = cfg.TRAIN.DATASET
         batch_size = int(cfg.TRAIN.BATCH_SIZE / max(1, cfg.NUM_GPUS))
         shuffle = False
         drop_last = False
+        persistent_workers=False
     elif split in ["test"]:
         dataset_name = cfg.TEST.DATASET
         batch_size = int(cfg.TEST.BATCH_SIZE / max(1, cfg.NUM_GPUS))
         shuffle = False
         drop_last = False
+        persistent_workers=False
 
     # Construct the dataset
     dataset = build_dataset(dataset_name, cfg, split)
+    # dataset = create_balanced_indices(dataset, cfg)
 
     if isinstance(dataset, torch.utils.data.IterableDataset):
         loader = torch.utils.data.DataLoader(
@@ -129,6 +133,7 @@ def construct_loader(cfg, split, is_precise_bn=False):
             drop_last=drop_last,
             collate_fn=detection_collate if cfg.DETECTION.ENABLE else None,
             worker_init_fn=utils.loader_worker_init_fn(dataset),
+            persistent_workers=persistent_workers,
         )
     else:
         if cfg.MULTIGRID.SHORT_CYCLE and split in ["train"] and not is_precise_bn:

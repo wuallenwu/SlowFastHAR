@@ -1,0 +1,120 @@
+DATA:
+  PATH_TO_DATA_DIR_SYN: "/home/emilykim/Desktop/HAR-project/REMAG_syn/"
+  PATH_TO_DATA_DIR: "/home/emilykim/Desktop/HAR-project/REMAG_new/"
+  PATH_TO_DATA_DIR_VAL: "/home/emilykim/Desktop/HAR-project/Real_Aerial+11Act_224px/Sequences/"
+  NUM_FRAMES: 16
+  SAMPLING_RATE: 4
+  DECODING_BACKEND: torchvision 
+  TRAIN_JITTER_SCALES: [256, 320]
+  TRAIN_CROP_SIZE: 224
+  TEST_CROP_SIZE: 224
+  # INPUT_CHANNEL_NUM: [3]
+  TRAIN_JITTER_SCALES_RELATIVE: [0.08, 1.0]
+  TRAIN_JITTER_ASPECT_RELATIVE: [0.75, 1.3333]
+  INV_UNIFORM_SAMPLE: False
+  RANDOM_FLIP: True
+  MEAN: [123.675, 116.28, 103.53]  
+  STD: [58.395, 57.12, 57.375]
+  TEST_CLASS_IDS: [5, 6, 8]
+  INPUT_CHANNEL_NUM: [3, 3]
+  SYN_GEN: False
+  TRAIN_IDS: [22, 2, 7, 11, 13]
+  TEST_IDS: [5, 6, 8, 21, 20]
+
+TRAIN:
+  ENABLE: True
+  DATASET: "REMAGDataset"
+  BATCH_SIZE: 80
+  EVAL_PERIOD: 3
+  CHECKPOINT_PERIOD: 3
+  AUTO_RESUME: False
+  # CHECKPOINT_FILE_PATH: "outputs/remag-15-viewA-slowfast-syn-new/checkpoints/checkpoint_epoch_00029.pyth" #
+  CHECKPOINT_FILE_PATH: "pretrained/SLOWFAST_4x16_R50.pkl" 
+  CHECKPOINT_TYPE: 'caffe2'
+  CHECKPOINT_EPOCH_RESET: True
+
+TEST:
+  ENABLE: False
+  DATASET: "REMAGDataset"
+  BATCH_SIZE: 2
+  CHECKPOINT_FILE_PATH: "outputs/remag-15-viewA-real-2/checkpoints/checkpoint_epoch_00102.pyth" #"pretrained/MViTv2_S_16x4_k400_f302660347.pyth"
+  NUM_SPATIAL_CROPS: 1
+  NUM_ENSEMBLE_VIEWS: 1  # Increase for final eval if needed
+  SAVE_RESULTS_PATH: "results"
+
+MODEL:
+  NUM_CLASSES: 12
+  ARCH: slowfast
+  MODEL_NAME: SlowFast
+  LOSS_FUNC: cross_entropy
+  DROPOUT_RATE: 0.5
+
+SLOWFAST:
+  ALPHA: 8
+  BETA_INV: 8
+  FUSION_CONV_CHANNEL_RATIO: 2
+  FUSION_KERNEL_SZ: 5
+
+RESNET:
+  ZERO_INIT_FINAL_BN: True
+  WIDTH_PER_GROUP: 64
+  NUM_GROUPS: 1
+  DEPTH: 50
+  TRANS_FUNC: bottleneck_transform
+  STRIDE_1X1: False
+  NUM_BLOCK_TEMP_KERNEL: [[3, 3], [4, 4], [6, 6], [3, 3]]
+  SPATIAL_STRIDES: [[1, 1], [2, 2], [2, 2], [2, 2]]
+  SPATIAL_DILATIONS: [[1, 1], [1, 1], [1, 1], [1, 1]]
+
+NONLOCAL:
+  LOCATION: [[[], []], [[], []], [[], []], [[], []]]
+  GROUP: [[1, 1], [1, 1], [1, 1], [1, 1]]
+  INSTANTIATION: dot_product
+
+BN:
+  USE_PRECISE_STATS: True
+  NUM_BATCHES_PRECISE: 200
+
+SOLVER:
+  BASE_LR: 0.1
+  LR_POLICY: cosine
+  MAX_EPOCH: 1000
+  MOMENTUM: 0.9
+  WEIGHT_DECAY: 1e-4
+  WARMUP_EPOCHS: 34.0
+  WARMUP_START_LR: 0.1
+  OPTIMIZING_METHOD: adamw
+
+AUG:
+  ENABLE: True
+  COLOR_JITTER: 0.4
+  AA_TYPE: rand-m7-n4-mstd0.5-inc1
+  INTERPOLATION: bicubic
+  NUM_SAMPLE: 2
+  RE_MODE: pixel
+  RE_COUNT: 1
+  RE_SPLIT: False
+
+MIXUP:
+  ENABLE: False
+  ALPHA: 0.8
+  LABEL_SMOOTH_VALUE: 0.1
+  CUTMIX_ALPHA: 1.0
+  PROB: 1.0
+  SWITCH_PROB: 0.5
+
+TENSORBOARD:
+  ENABLE: True      
+  CATEGORIES_PATH: "actions.json"
+  CONFUSION_MATRIX: 
+    ENABLE: True
+
+DATA_LOADER:
+  NUM_WORKERS: 8
+  PIN_MEMORY: True
+
+NUM_GPUS: 2
+NUM_SHARDS: 1
+RNG_SEED: 0
+OUTPUT_DIR: ./outputs/remag-12-aerial-real
+LOG_PERIOD: 5

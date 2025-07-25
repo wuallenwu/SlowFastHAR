@@ -1,6 +1,6 @@
 DATA:
-  PATH_TO_DATA_DIR: "/home/ekim2/Storage/REMAG_new"
-
+  PATH_TO_DATA_DIR_SYN: "/home/emilykim/Desktop/HAR-project/REMAG_syn/"
+  PATH_TO_DATA_DIR: "/home/emilykim/Desktop/HAR-project/REMAG_new"
   NUM_FRAMES: 16
   SAMPLING_RATE: 4
   DECODING_BACKEND: torchvision 
@@ -15,26 +15,33 @@ DATA:
   MEAN: [123.675, 116.28, 103.53]  
   STD: [58.395, 57.12, 57.375]
   TEST_CLASS_IDS: [5, 6, 8]
+  TRAIN_IDS: [1, 3, 10, 15, 19] #, 22, 2, 7, 11, 13
+  TEST_IDS: [5, 6, 8, 21, 20]
+  SYN_GEN: True
+
 
 TRAIN:
   ENABLE: True
   DATASET: "REMAGDataset"
-  BATCH_SIZE: 4
+  BATCH_SIZE: 24
   EVAL_PERIOD: 1
   CHECKPOINT_PERIOD: 1
   AUTO_RESUME: True
-  CHECKPOINT_FILE_PATH: "pretrained/MViTv2_S_16x4_k400_f302660347.pyth"
+  # CHECKPOINT_FILE_PATH: "pretrained/MViTv2_S_16x4_k400_f302660347.pyth"
+  CHECKPOINT_FILE_PATH: "outputs/remag-15-viewA-syn-mvit-woBrightness-shorter/checkpoints/checkpoint_epoch_00018.pyth"
   CHECKPOINT_EPOCH_RESET: True
 
 TEST:
   ENABLE: False
   DATASET: "REMAGDataset"
-  BATCH_SIZE: 64
+  BATCH_SIZE: 48
+  CHECKPOINT_FILE_PATH: "outputs/remag-10/checkpoints/checkpoint_epoch_00056.pyth" #"pretrained/MViTv2_S_16x4_k400_f302660347.pyth"
   NUM_SPATIAL_CROPS: 1
   NUM_ENSEMBLE_VIEWS: 1  # Increase for final eval if needed
+  SAVE_RESULTS_PATH: "results"
 
 MODEL:
-  NUM_CLASSES: 11
+  NUM_CLASSES: 16
   ARCH: slow
   MODEL_NAME: MViT
   LOSS_FUNC: soft_cross_entropy
@@ -90,7 +97,7 @@ SOLVER:
   LR_POLICY: cosine
   COSINE_AFTER_WARMUP: True
   COSINE_END_LR: 1e-6
-  MAX_EPOCH: 10000
+  MAX_EPOCH: 3 #
   WARMUP_EPOCHS: 50.0
   MOMENTUM: 0.9
   WEIGHT_DECAY: 7e-2
@@ -105,10 +112,11 @@ TENSORBOARD:
     ENABLE: True
 
 DATA_LOADER:
-  NUM_WORKERS: 8
+  NUM_WORKERS: 16
   PIN_MEMORY: True
 
-NUM_GPUS: 4
+NUM_GPUS: 2
 NUM_SHARDS: 1
 RNG_SEED: 0
-OUTPUT_DIR: ./outputs/remag
+OUTPUT_DIR: ./outputs/remag-15-viewA-syn-mvit-woBrightness-shorter
+LOG_PERIOD: 5

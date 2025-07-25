@@ -657,7 +657,9 @@ _C.DATA = CfgNode()
 _C.DATA.TEST_CLASS_IDS = []
 
 # The path to the data directory.
+_C.DATA.PATH_TO_DATA_DIR_SYN = ""
 _C.DATA.PATH_TO_DATA_DIR = ""
+_C.DATA.PATH_TO_DATA_DIR_VAL = ""
 
 # The separator used between path and label.
 _C.DATA.PATH_LABEL_SEPARATOR = " "
@@ -680,6 +682,8 @@ _C.DATA.TRAIN_PCA_EIGVEC = [
     [-0.5808, -0.0045, -0.8140],
     [-0.5836, -0.6948, 0.4203],
 ]
+
+_C.DATA.REMAG_TYPE = ""
 
 # If a imdb have been dumpped to a local file with the following format:
 # `{"im_path": im_path, "class": cont_id}`
@@ -717,6 +721,12 @@ _C.DATA.TRAIN_CROP_SIZE = 224
 
 # The spatial crop size for testing.
 _C.DATA.TEST_CROP_SIZE = 256
+
+_C.DATA.SYN_GEN = False
+
+_C.DATA.TRAIN_IDS = [1, 3, 10, 15, 19, 22, 2, 7, 11, 13]
+
+_C.DATA.TEST_IDS = [5, 6, 8, 21, 20]
 
 # Input videos may has different fps, convert it to the target video fps before
 # frame sampling.

@@ -324,16 +324,18 @@ class TestMeter:
                     labels[ind].type(torch.FloatTensor),
                 )
             self.video_labels[vid_id] = labels[ind]
-            if self.ensemble_method == "sum":
-                self.video_preds[vid_id] += preds[ind]
-            elif self.ensemble_method == "max":
-                self.video_preds[vid_id] = torch.max(
-                    self.video_preds[vid_id], preds[ind]
-                )
-            else:
-                raise NotImplementedError(
-                    "Ensemble Method {} is not supported".format(self.ensemble_method)
-                )
+            self.video_preds[vid_id] = preds[ind]
+            # if self.ensemble_method == "sum":
+            #     self.video_preds[vid_id] += preds[ind]
+            # elif self.ensemble_method == "max":
+            #     self.video_preds[vid_id] = torch.max(
+            #         self.video_preds[vid_id], preds[ind]
+            #     )
+            # else:
+            #     raise NotImplementedError(
+            #         "Ensemble Method {} is not supported".format(self.ensemble_method)
+            #     )
+            # print(self.video_labels[vid_id], self.video_preds[vid_id])
             self.clip_count[vid_id] += 1
 
     def log_iter_stats(self, cur_iter):

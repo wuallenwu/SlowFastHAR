@@ -126,7 +126,6 @@ def perform_test(test_loader, model, test_meter, cfg, writer=None):
             # Update and log stats.
             test_meter.update_stats(preds.detach(), labels.detach(), video_idx.detach())
         test_meter.log_iter_stats(cur_iter)
-
         test_meter.iter_tic()
 
     # Log epoch stats and print the final testing results.
@@ -147,7 +146,7 @@ def perform_test(test_loader, model, test_meter, cfg, writer=None):
                     pickle.dump([all_preds, all_labels], f)
 
             logger.info("Successfully saved prediction results to {}".format(save_path))
-
+    
     test_meter.finalize_metrics()
     return test_meter
 

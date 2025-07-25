@@ -114,6 +114,7 @@ class VideoModelStem(nn.Module):
             self.add_module("pathway{}_stem".format(pathway), stem)
 
     def forward(self, x):
+        # print('num_pathways', len(x))
         assert (
             len(x) == self.num_pathways
         ), "Input tensor does not contain {} pathway".format(self.num_pathways)

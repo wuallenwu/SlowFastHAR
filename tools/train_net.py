@@ -82,11 +82,11 @@ def train_epoch(
     # loss_fun = losses.get_loss_func(cfg.MODEL.LOSS_FUNC)(reduction="mean")
     loss_fun = torch.nn.MSELoss()
     
-    eval_freq = 100
-    print(data_size)
-    
-
     for cur_iter, (inputs, labels, index, time, meta) in enumerate(train_loader):
+        
+        if inputs == None:
+            continue
+    
         # Transfer the data to the current GPU device.
         if cfg.NUM_GPUS:
             if isinstance(inputs, (list,)):
@@ -114,7 +114,9 @@ def train_epoch(
         )
         # Update the learning rate.
         epoch_exact = cur_epoch + float(cur_iter) / data_size
-        lr = optim.get_epoch_lr(epoch_exact, cfg)
+        # lr = optim.get_epoch_lr(epoch_exact, cfg)
+        # lr = 1e-3
+        lr = cfg.SOLVER.BASE_LR
         optim.set_lr(optimizer, lr)
 
         train_meter.data_toc()
@@ -153,7 +155,7 @@ def train_epoch(
             labels_ = torch.zeros(preds.shape)
             for b in range(labels_.shape[0]):
                 labels_[b][labels[b]] = 1
-            labels = labels_.cuda()
+            labels = labels_.to(device=labels.device)
 
             if cfg.MODEL.MODEL_NAME == "ContrastiveModel" and partial_loss:
                 loss = partial_loss
@@ -312,10 +314,9 @@ def train_epoch(
         #                 train_loader,
         #                 writer,
         #             )
-    del inputs
-
-    # in case of fragmented memory
-    torch.cuda.empty_cache()
+        # del inputs
+        # in case of fragmented memory
+        # torch.cuda.empty_cache()
 
     # Log epoch stats.
     train_meter.log_epoch_stats(cur_epoch)
@@ -340,6 +341,9 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, train_loader, write
     # Evaluation mode enabled. The running stats would not be updated.
     model.eval()
     val_meter.iter_tic()
+    
+    all_top1_err = []
+    all_top5_err = []
 
     for cur_iter, (inputs, labels, index, time, meta) in enumerate(val_loader):
         if cfg.NUM_GPUS:
@@ -356,20 +360,19 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, train_loader, write
             #         inputs[i] = inputs[i].cuda(non_blocking=True)
             # else:
             #     inputs = inputs.cuda(non_blocking=True)
-            labels = labels.cuda()
+            labels = labels.cuda(non_blocking=True)
             for key, val in meta.items():
                 if isinstance(val, (list,)):
                     for i in range(len(val)):
                         val[i] = val[i].cuda(non_blocking=True)
                 else:
                     meta[key] = val.cuda(non_blocking=True)
-            index = index.cuda()
-            time = time.cuda()
+            index = index.cuda(non_blocking=True)
+            time = time.cuda(non_blocking=True)
         batch_size = (
             inputs[0][0].size(0) if isinstance(inputs[0], list) else inputs[0].size(0)
         )
         val_meter.data_toc()
-
         if cfg.DETECTION.ENABLE:
             # Compute the predictions.
             preds = model(inputs, meta["boxes"])
@@ -404,7 +407,7 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, train_loader, write
                 C = cfg.CONTRASTIVE.NUM_CLASSES_DOWNSTREAM  # eg 400 for Kinetics400
                 candidates = train_labels.view(1, -1).expand(batch_size, -1)
                 retrieval = torch.gather(candidates, 1, yi)
-                retrieval_one_hot = torch.zeros((batch_size * K, C)).cuda()
+                retrieval_one_hot = torch.zeros((batch_size * K, C)).cuda(non_blocking=True)
                 retrieval_one_hot.scatter_(1, retrieval.view(-1, 1), 1)
                 yd_transform = yd.clone().div_(cfg.CONTRASTIVE.T).exp_()
                 probs = torch.mul(
@@ -414,11 +417,10 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, train_loader, write
                 preds = torch.sum(probs, 1)
             else:
                 preds = model(inputs[0])
-                
             labels_ = torch.zeros(preds.shape)
             for b in range(labels_.shape[0]):
                 labels_[b][labels[b]] = 1
-            labels = labels_.cuda()
+            labels = labels_.cuda(non_blocking=True)
 
             if cfg.DATA.MULTI_LABEL:
                 if cfg.NUM_GPUS > 1:
@@ -438,7 +440,6 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, train_loader, write
 
                 # Copy the errors from GPU to CPU (sync point).
                 top1_err, top5_err = top1_err.item(), top5_err.item()
-
                 val_meter.iter_toc()
                 # Update and log stats.
                 val_meter.update_stats(
@@ -450,13 +451,15 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, train_loader, write
                     ),  # If running  on CPU (cfg.NUM_GPUS == 1), use 1 to represent 1 CPU.
                 )
                 # write to tensorboard format if available.
-                if writer is not None:
-                    writer.add_scalars(
-                        {"Val/Top1_err": top1_err, "Val/Top5_err": top5_err},
-                        global_step=len(val_loader) * cur_epoch + cur_iter,
-                    )
+                # if writer is not None:
+                #     writer.add_scalars(
+                #         {"Val/Top1_err": top1_err, "Val/Top5_err": top5_err},
+                #         global_step=len(val_loader) * cur_epoch + cur_iter,
+                #     )
 
             val_meter.update_predictions(preds, labels)
+            all_top1_err.append(top1_err)
+            all_top5_err.append(top5_err)
 
         val_meter.log_iter_stats(cur_epoch, cur_iter)
         val_meter.iter_tic()
@@ -474,7 +477,10 @@ def eval_epoch(val_loader, model, val_meter, cur_epoch, cfg, train_loader, write
                 all_preds = [pred.cpu() for pred in all_preds]
                 all_labels = [label.cpu() for label in all_labels]
             writer.plot_eval(preds=all_preds, labels=all_labels, global_step=cur_epoch)
-
+            writer.add_scalars(
+                        {"Val/Top1_err": sum(all_top1_err)/len(all_top1_err), "Val/Top5_err": sum(all_top5_err)/len(all_top5_err)},
+                        global_step=len(val_loader) * cur_epoch,
+                    )
     val_meter.reset()
 
 
@@ -666,7 +672,19 @@ def train(cfg):
     logger.info("Start epoch: {}".format(start_epoch + 1))
 
     epoch_timer = EpochTimer()
+    
+    # with accelerator.autocast():
+    #     eval_epoch(
+    #         val_loader,
+    #         model,
+    #         val_meter,
+    #         0,
+    #         cfg,
+    #         train_loader,
+    #         writer,
+    #     )
     for cur_epoch in range(start_epoch, cfg.SOLVER.MAX_EPOCH):
+        
         if cur_epoch > 0 and cfg.DATA.LOADER_CHUNK_SIZE > 0:
             num_chunks = math.ceil(
                 cfg.DATA.LOADER_CHUNK_OVERALL_SIZE / cfg.DATA.LOADER_CHUNK_SIZE

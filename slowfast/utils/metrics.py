@@ -32,7 +32,10 @@ def topks_correct(preds, labels, ks):
     # (batch_size, max_k) -> (max_k, batch_size).
     top_max_k_inds = top_max_k_inds.t()
     # (batch_size, ) -> (max_k, batch_size).
-    labels_k = torch.argmax(labels, dim=1)
+    if len(labels.shape) > 1:
+        labels_k = torch.argmax(labels, dim=1)
+    else:
+        labels_k = labels
     rep_max_k_labels = labels_k.view(1, -1).expand_as(top_max_k_inds)
     # (i, j) = 1 if top i-th prediction for the j-th sample is correct.
     top_max_k_correct = top_max_k_inds.eq(rep_max_k_labels)
